@@ -21,7 +21,7 @@ class ExceptionOccurredChannel extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return ["slack"];
+        return ['slack'];
     }
 
     public function toSlack(object $notifiable): SlackMessage
@@ -31,8 +31,8 @@ class ExceptionOccurredChannel extends Notification implements ShouldQueue
         $link = url("/?exception={$this->exception->id}");
 
         return (new SlackMessage())
-            ->text(":rotating_light: *New exception in FaultLine*")
-            ->headerBlock("Exception Occurred")
+            ->text(':rotating_light: *New exception in FaultLine*')
+            ->headerBlock('Exception Occurred')
             ->sectionBlock(function (SectionBlock $block): void {
                 $block->text("*Message:* {$this->exception->message}");
             })
@@ -49,7 +49,7 @@ class ExceptionOccurredChannel extends Notification implements ShouldQueue
 ```{$truncatedTrace}```");
             })
             ->actionsBlock(function ($actions) use ($link): void {
-                $actions->button("View Exception")->url($link)->primary();
+                $actions->button('View Exception')->url($link)->primary();
             })
             ->dividerBlock();
     }

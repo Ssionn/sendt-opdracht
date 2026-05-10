@@ -40,16 +40,16 @@ class ExceptionReporter
 
         $user = Auth::user();
 
-        if (! $user->sentry_dsn) {
-            return;
-        }
-
-        $effectiveDsn = $user->sentry_dsn;
-        $sentToSentry = (bool) ($effectiveDsn && $user?->notify_sentry !== false);
-
+        $sentToSentry = false;
         $sentryEventId = null;
-        if ($sentToSentry) {
-            $sentryEventId = $this->captureToSentry($e, $effectiveDsn);
+
+        if ($user?->sentry_dsn) {
+            $effectiveDsn = $user->sentry_dsn;
+            $sentToSentry = (bool) ($effectiveDsn && $user->notify_sentry !== false);
+
+            if ($sentToSentry) {
+                $sentryEventId = $this->captureToSentry($e, $effectiveDsn);
+            }
         }
 
         $url = request()?->fullUrl() ?? 'cli';
