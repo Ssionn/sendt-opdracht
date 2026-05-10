@@ -1,15 +1,10 @@
 # FaultLine
 
-> Backend Developer — Laravel Error Handling assignment
+> Backend Developer — Laravel Error Handling opdracht
 
-FaultLine is a small Laravel application that demonstrates a robust, production-style
-exception pipeline: every unhandled `Throwable` is logged, persisted with full context,
-and broadcast to an external channel (Slack and/or e-mail) — without slowing down
-the request that triggered it.
+FaultLine is een kleine Laravel-applicatie met een productiewaardige exception-pipeline: elke onafgevangen `Throwable` wordt gelogd, opgeslagen met volledige context, en doorgestuurd naar een extern kanaal (Slack en/of e-mail) — zonder de request te vertragen.
 
-On top of the required brief I've added a tiny UI to inspect/trigger exceptions, a
-queue-backed notification path, rate limiting and an optional Sentry
-integration.
+Daarbovenop: een kleine UI om exceptions te bekijken/triggeren, queue-backed notificaties, rate limiting en een optionele Sentry-integratie.
 
 ---
 
@@ -17,10 +12,10 @@ integration.
 
 | | |
 |---|---|
-| Framework | **Laravel 13** (the brief mentions 10/11; 13 was used because it's the current LTS line and the API surface for `bootstrap/app.php` exception handling is identical) |
+| Framework | **Laravel 13** |
 | PHP | 8.3 |
-| DB | MySQL (SQLite works too — switch in `.env`) |
-| Queue | `database` driver (any driver works) |
+| DB | MySQL (SQLite werkt ook) |
+| Queue | `database` driver |
 
 ---
 
@@ -34,15 +29,14 @@ composer install
 npm install && npm run build
 php artisan key:generate
 php artisan migrate
-composer run dev   # serves app + queue worker + vite + log tail
+composer run dev
 ```
 
-Then open <http://localhost:8000>, register an account, configure your notification
-channels in **Settings**, and use the **Trigger Exception** button to fire one.
+Open <http://localhost:8000>, maak een account aan, stel je notificatiekanalen in via **Settings**, en gebruik de **Trigger Exception** knop.
 
 ---
 
-## How the error pipeline works
+## Hoe de error pipeline werkt
 
 ```
                 ┌──────────────────────────┐
@@ -52,8 +46,8 @@ channels in **Settings**, and use the **Trigger Exception** button to fire one.
                              │
                              ▼
                 ┌──────────────────────────┐
-                │  ExceptionReporter       │  ◄── ignores framework noise
-                │  (Service / SRP)         │  ◄── rate limits duplicates
+                │  ExceptionReporter       │  ◄── filtert framework-ruis
+                │  (Service / SRP)         │  ◄── rate-limit op duplicaten
                 └────────────┬─────────────┘
                              │
               ┌──────────────┼──────────────┐
@@ -67,143 +61,73 @@ channels in **Settings**, and use the **Trigger Exception** button to fire one.
                                        ▼                       ▼
                               ┌─────────────────┐     ┌─────────────────┐
                               │ Slack channel   │     │ Mail channel    │
-                              │ (rich blocks)   │     │ (MailMessage)   │
                               └─────────────────┘     └─────────────────┘
 ```
 
-### Key files
+### Belangrijke bestanden
 
-| Path | Responsibility |
+| Pad | Verantwoordelijkheid |
 |---|---|
-| `bootstrap/app.php` | Wires global `reportable()` + per-exception `render()` rules. |
-| `app/Exceptions/FaultlineException.php` | Custom `DomainException` for business-rule violations (required by the brief). |
-| `app/Services/ExceptionReporter.php` | Pure service that decides *what* to report, dedupes via rate limiter, persists, and dispatches the job. |
-| `app/Jobs/SendExceptionNotification.php` | Queued job that fans out to the active notification channels per user. |
+| `bootstrap/app.php` | Registreert `reportable()` + `render()` regels. |
+| `app/Exceptions/FaultlineException.php` | Custom `DomainException` voor business-rule violations. |
+| `app/Services/ExceptionReporter.php` | Beslist wat gerapporteerd wordt, dedupliceert, slaat op, dispatcht de job. |
+| `app/Jobs/SendExceptionNotification.php` | Queued job die notificaties naar actieve kanalen stuurt per user. |
 | `app/Notifications/ExceptionOccurred.php` | Mail channel. |
-| `app/Notifications/ExceptionOccurredChannel.php` | Slack channel (block kit, includes message + URL + file + line + truncated trace). |
-| `app/Services/ExceptionTypeMapper.php` | Maps the `ExceptionType` enum to a concrete class + default message — keeps the demo controller dumb. |
-| `app/Enums/ExceptionType.php` | The five demo types (`domain`, `runtime`, `logic`, `invalid_argument`, `bad_method`). |
-| `app/Http/Controllers/ExceptionController.php@trigger` | Demo endpoint to fire any of those types on demand. |
+| `app/Notifications/ExceptionOccurredChannel.php` | Slack channel (Block Kit). |
+| `app/Services/ExceptionTypeMapper.php` | Mapt `ExceptionType` enum naar concrete class + default message. |
+| `app/Enums/ExceptionType.php` | Vijf demo types (`domain`, `runtime`, `logic`, `invalid_argument`, `bad_method`). |
+| `app/Http/Controllers/ExceptionController.php@trigger` | Demo-endpoint om een exception te triggeren. |
 
 ---
 
-## Architectural choices & trade-offs
+## Architectuurkeuzes
 
-### 1. Centralised handler in `bootstrap/app.php`, not a custom Handler class
-Laravel 11+ moved exception handling out of `App\Exceptions\Handler` and into a
-fluent `withExceptions()` callback. I kept it there because:
+### 1. Handler in `bootstrap/app.php`
+Laravel 11+ idioom. De echte logica zit in `ExceptionReporter` — het bootstrap-bestand is alleen de registratie.
 
-- It's the framework idiom (Laravel conventions criterion).
-- The actual logic lives in `ExceptionReporter` — the bootstrap file is only the
-  *registration*.
+### 2. `ExceptionReporter` als service
+Synchrone flow binnen de request (DB-row wordt geschreven vóór de response). Alleen de notificatie gaat via de queue.
 
-### 2. `ExceptionReporter` is a service, not a Listener / static helper
-A service was chosen over an event listener because the reporting flow is
-**synchronous within the request** (we want the DB row written before the response
-is sent, so the dashboard reflects reality immediately). Only the *outbound
-notification* is deferred to a queue.
+### 3. Notificaties via een Job
+`SendExceptionNotification` is een `ShouldQueue` Job die per user de juiste kanalen aanspreekt. Als Slack down is, gaat de mail alsnog door.
 
-It implements SRP by separating four concerns into private methods:
-`shouldIgnore()`, `captureToSentry()`, `typeFromException()`, and the orchestration
-in `report()`.
+### 4. Rate limiting op report-niveau
+Keyed op `class + message`, max 5 per minuut. Checkt vóór de database-write.
 
-### 3. Notifications are dispatched from a Job, not directly
-`SendExceptionNotification` is a `ShouldQueue` Job that *itself* dispatches the
-Notifications. Two reasons:
+### 5. HTTP status codes per exception class
+`AuthenticationException` → 401, `ModelNotFoundException` → 404, `ValidationException` → 422, rest → 500. Alleen voor JSON-requests.
 
-- The job owns the per-channel routing logic (different users have different Slack
-  tokens / channels / opt-ins) — this state is messy and shouldn't live in the
-  Notification class itself.
-- If a user has *both* Slack and Mail enabled and Slack is down, the Mail still
-  goes out and the job can be retried independently.
+### 6. Sentry als opt-in
+Per-user DSN, geïsoleerde `Sentry\Hub`, event IDs opgeslagen voor deep-links.
 
-The Notification classes themselves stay focused on *formatting* one channel each
-— Slack has its own class (`ExceptionOccurredChannel`) using Block Kit, Mail has
-`ExceptionOccurred`. Adding a new channel (Discord, Telegram, webhook) is a
-new Notification + a branch in the Job, nothing else changes.
-
-### 4. Rate limiting on the report side, not the notification side
-Keyed by `class + message`, capped at 5 per minute. The check runs **before**
-we hit the database, so a runaway exception loop can't fill the table.
-
-Trade-off: it's per-server-process (uses the cache store). For multi-node setups
-you'd want a Redis-backed limiter — already supported, just change `CACHE_STORE`.
-
-### 5. HTTP status code rendering is split per exception class
-Rather than one big switch, each renderable lives in its own `render()` callback
-in `bootstrap/app.php`:
-
-- `AuthenticationException` → `401`
-- `ModelNotFoundException` → `404`
-- `ValidationException` → `422` (with errors payload)
-- everything else (only when `expectsJson()`) → generic `500`
-
-HTML responses still get Laravel's default error pages, so this only kicks in for
-API-style calls.
-
-### 6. Sentry as an opt-in side-channel
-Sentry is wired in but **never required**. Each user can paste their own DSN in
-Settings; if it matches `config('sentry.dsn')` we use the global SDK, otherwise
-we spin up an isolated `Sentry\Hub` so one user's events don't leak into another
-user's project. Event IDs are stored so the UI can deep-link back to Sentry,
-and exceptions can be resolved on both sides from one click.
-
-### 7. Why a `database` queue by default
-Zero external dependencies for the reviewer. Swap `QUEUE_CONNECTION=redis` or
-`sync` (for debugging) in `.env` — nothing else changes.
+### 7. `database` queue standaard
+Geen externe dependencies nodig. Wissel naar `redis` of `sync` in `.env`.
 
 ---
 
-## Bonus features
+## Bonusfeatures
 
-- **Queue-based notifications** — `SendExceptionNotification implements ShouldQueue`,
-  and the Notifications themselves also implement `ShouldQueue`, so the originating
-  request returns immediately.
-- **Rate limiting** — see §4 above.
-- **Sentry integration** — per-user DSN, custom hub, bi-directional resolve.
-- **Mini-dashboard UI** — list / detail / trigger / resolve / delete exceptions,
-  Slack OAuth login, per-user notification preferences.
+- Queue-based notificaties
+- Rate limiting
+- Sentry-integratie (per-user DSN, bi-directioneel resolve)
+- Mini-dashboard UI (list/detail/trigger/resolve/delete, Slack OAuth, user preferences)
 
 ---
 
-## Demo: triggering an exception
+## Demo
 
-Authenticated, via the UI: **Trigger Exception** button, pick a type, hit submit.
+Via de UI: **Trigger Exception** knop → kies een type → submit.
 
-Authenticated, via HTTP:
-
-```sh
-curl -X POST http://localhost:8000/exceptions/trigger \
-     -H "Accept: application/json" \
-     -H "X-XSRF-TOKEN: ..." \
-     --cookie "..." \
-     -d "type=domain&message=Customer is not allowed to do that"
-```
-
-Via tinker:
-
-```php
-php artisan tinker
->>> throw new \App\Exceptions\FaultlineException('boom');
-```
-
-In all three cases you should see:
-
-1. A row appear in the `exceptions` table.
-2. A Slack message arrive in your configured channel (if enabled).
-3. An e-mail arrive at your address (if enabled — check `storage/logs/laravel.log`
-   if `MAIL_MAILER=log`).
-4. The Sentry event ID populated on the row (if Sentry DSN is set).
+1. Rij verschijnt in de `exceptions` tabel.
+2. Slack-bericht arriveert (indien ingeschakeld).
+3. E-mail arriveert (check `storage/logs/laravel.log` bij `MAIL_MAILER=log`).
+4. Sentry event ID wordt ingevuld (indien DSN is geconfigureerd).
 
 ---
 
-## What I'd add next (out of scope)
+## Toekomstige verbeteringen
 
-- **Per-tenant rate limit budgets** instead of a global 5/min — currently a noisy
-  app could starve a quiet one.
-- **Grouping/fingerprinting** of similar exceptions à la Sentry's issue grouping,
-  so the dashboard doesn't drown in duplicates.
-- **Retry/backoff policy on the Job** — currently uses the default; for a
-  flaky Slack webhook you'd want `$tries` + `$backoff`.
-- **Mail notification body parity with Slack** — the mail message could include
-  the same URL/file/line/trace context the Slack message already has.
+- Per-tenant rate limit budgets
+- Grouping/fingerprinting van soortgelijke exceptions
+- Retry/backoff policy op de Job
+- Mail-body gelijktrekken met Slack-context
