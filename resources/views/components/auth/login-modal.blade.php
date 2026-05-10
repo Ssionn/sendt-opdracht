@@ -4,6 +4,7 @@
         tab: 'login',
         email: '',
         password: '',
+        passwordConfirmation: '',
         name: '',
         error: '',
         loading: false,
@@ -21,11 +22,14 @@
                     body: JSON.stringify(
                         this.tab === 'login'
                             ? { email: this.email, password: this.password }
-                            : { name: this.name, email: this.email, password: this.password }
+                            : { name: this.name, email: this.email, password: this.password, password_confirmation: this.passwordConfirmation }
                     ),
                 });
                 const data = await res.json();
                 if (data.success) {
+                    this.password = '';
+                    this.passwordConfirmation = '';
+                    this.name = '';
                     window.location.reload();
                 } else {
                     this.error = data.message ?? 'Something went wrong.';
@@ -114,6 +118,14 @@
                     placeholder="Password"
                     class="bg-[#1c1c1a] text-white text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[#3A3A38] placeholder-[#555]"
                 />
+                <template x-if="tab === 'register'">
+                    <input
+                        x-model="passwordConfirmation"
+                        type="password"
+                        placeholder="Confirm password"
+                        class="bg-[#1c1c1a] text-white text-sm rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-[#3A3A38] placeholder-[#555]"
+                    />
+                </template>
                 <button
                     type="submit"
                     :disabled="loading"
