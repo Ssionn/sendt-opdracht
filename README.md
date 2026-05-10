@@ -8,7 +8,7 @@ and broadcast to an external channel (Slack and/or e-mail) — without slowing d
 the request that triggered it.
 
 On top of the required brief I've added a tiny UI to inspect/trigger exceptions, a
-queue-backed notification path, rate limiting, feature tests and an optional Sentry
+queue-backed notification path, rate limiting and an optional Sentry
 integration.
 
 ---
@@ -27,8 +27,8 @@ integration.
 ## Quick start
 
 ```sh
-git clone <repo> faultline
-cd faultline
+git clone https://github.com/Ssionn/sendt-opdracht.git
+cd sendt-opdracht
 cp .env.example .env
 composer install
 npm install && npm run build
@@ -95,8 +95,7 @@ fluent `withExceptions()` callback. I kept it there because:
 
 - It's the framework idiom (Laravel conventions criterion).
 - The actual logic lives in `ExceptionReporter` — the bootstrap file is only the
-  *registration*. This keeps the handler trivially small and the service trivially
-  testable.
+  *registration*.
 
 ### 2. `ExceptionReporter` is a service, not a Listener / static helper
 A service was chosen over an event listener because the reporting flow is
@@ -161,8 +160,6 @@ Zero external dependencies for the reviewer. Swap `QUEUE_CONNECTION=redis` or
   and the Notifications themselves also implement `ShouldQueue`, so the originating
   request returns immediately.
 - **Rate limiting** — see §4 above.
-- **Feature tests** — `tests/Feature/ExceptionTriggerTest.php`,
-  `ExceptionIndexTest.php`, `AuthTest.php`. Run with `composer test`.
 - **Sentry integration** — per-user DSN, custom hub, bi-directional resolve.
 - **Mini-dashboard UI** — list / detail / trigger / resolve / delete exceptions,
   Slack OAuth login, per-user notification preferences.
@@ -197,14 +194,6 @@ In all three cases you should see:
 3. An e-mail arrive at your address (if enabled — check `storage/logs/laravel.log`
    if `MAIL_MAILER=log`).
 4. The Sentry event ID populated on the row (if Sentry DSN is set).
-
----
-
-## Running the tests
-
-```sh
-composer test
-```
 
 ---
 
