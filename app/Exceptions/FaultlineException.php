@@ -4,6 +4,6 @@ declare(strict_types=1);
 
 namespace App\Exceptions;
 
-use RuntimeException;
+use DomainException;
 
-class FaultlineException extends RuntimeException {}
+class FaultlineException extends DomainException {}
