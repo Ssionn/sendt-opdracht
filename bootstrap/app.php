@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
-use App\Exceptions\FaultlineException;
-use App\Models\Exception;
+use App\Services\ExceptionReporter;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
-use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
+use Sentry\Laravel\Integration;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -20,23 +22,32 @@ return Application::configure(basePath: dirname(__DIR__))
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->reportable(function (Throwable $e): void {
-            if (! $e instanceof FaultlineException) {
-                return;
-            }
+            app(ExceptionReporter::class)->report($e);
+        });
 
-            try {
-                Exception::create([
-                    'user_id' => Auth::id(),
-                    'message' => $e->getMessage(),
-                    'stack_trace' => $e->getTraceAsString(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ]);
-            } catch (Throwable) {
-            }
-
-            if (app()->bound('sentry') && config('sentry.dsn')) {
-                app('sentry')->captureException($e);
+        $exceptions->renderable(function (Throwable $e) {
+            if (request()->expectsJson()) {
+                return response()->json(['message' => $e->getMessage()], 500);
             }
         });
+
+        $exceptions->render(function (AuthenticationException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Unauthenticated.'], 401);
+            }
+        });
+
+        $exceptions->render(function (ModelNotFoundException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Not found.'], 404);
+            }
+        });
+
+        $exceptions->render(function (ValidationException $e, $request) {
+            if ($request->expectsJson()) {
+                return response()->json(['message' => 'Validation failed.', 'errors' => $e->errors()], 422);
+            }
+        });
+
+        Integration::handles($exceptions);
     })->create();
